@@ -60,6 +60,12 @@ GhCLI/
     GhCLI.Protocol.dll
 ```
 
+For a cloneable build-only repo:
+
+```powershell
+scripts\package-build-repo.ps1 -OutputPath C:\path\to\ghcli-build
+```
+
 ## docs
 
 - `docs/command-contract.md` - command and JSON contract
