@@ -139,7 +139,7 @@ internal sealed partial class GrasshopperRuntime
             {
                 Selected = IsSelected(obj),
                 Locked = TryGetBoolPropertyValue(obj, "Locked"),
-                Hidden = TryGetBoolPropertyValue(obj, "Hidden")
+                Hidden = GetPreviewHidden(obj)
             }
         };
 

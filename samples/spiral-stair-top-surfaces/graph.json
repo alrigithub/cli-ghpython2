@@ -66,7 +66,7 @@
       "node_id": "spiral_stair_top_surfaces",
       "nickname": "Spiral Stair Top Surfaces",
       "runtime": "cpython3",
-      "file_path": "C:/Users/ritiv/Desktop/gh-cli/cli-ghpython2/samples/spiral-stair-top-surfaces/script.py",
+      "file_path": "script.py",
       "position": {
         "x": 390,
         "y": 160

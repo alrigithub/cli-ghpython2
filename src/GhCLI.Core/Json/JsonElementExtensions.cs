@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GhCLI.Core.Errors;
 
 namespace GhCLI.Core.Json;
 
@@ -32,7 +33,12 @@ public static class JsonElementExtensions
             return null;
         }
 
-        return value.ValueKind == JsonValueKind.Null ? null : value.GetString();
+        return value.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => value.GetString(),
+            _ => throw new CommandValidationException($"Field '{name}' must be a string.")
+        };
     }
 
     public static string RequireString(this JsonElement element, string name)
@@ -40,7 +46,7 @@ public static class JsonElementExtensions
         var value = GetOptionalString(element, name);
         if (string.IsNullOrWhiteSpace(value))
         {
-            throw new InvalidOperationException($"Missing required string field '{name}'.");
+            throw new CommandValidationException($"Missing required string field '{name}'.");
         }
 
         return value;
@@ -53,7 +59,13 @@ public static class JsonElementExtensions
             return defaultValue;
         }
 
-        return value.ValueKind == JsonValueKind.True || (value.ValueKind == JsonValueKind.String && bool.Parse(value.GetString() ?? "false"));
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => throw new CommandValidationException($"Field '{name}' must be a boolean.")
+        };
     }
 
     public static double? GetOptionalDouble(this JsonElement element, string name)
@@ -67,6 +79,21 @@ public static class JsonElementExtensions
         {
             JsonValueKind.Number => value.GetDouble(),
             JsonValueKind.String when double.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    public static int? GetOptionalInt(this JsonElement element, string name)
+    {
+        if (!element.TryGetPropertyIgnoreCase(name, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number => value.GetInt32(),
+            JsonValueKind.String when int.TryParse(value.GetString(), out var parsed) => parsed,
             _ => null
         };
     }

@@ -1,11 +1,12 @@
 using System.Text.Json;
+using GhCLI.Core.Files;
+using GhCLI.Core.Sessions;
 using GhCLI.Protocol;
 
 namespace GhCLI;
 
 internal static class Program
 {
-    private const string DefaultPipeName = "ghcli.v1";
     private const int DefaultTimeoutMs = 5000;
 
     private static async Task<int> Main(string[] args)
@@ -14,7 +15,7 @@ internal static class Program
         {
             PrintUsage();
             WriteValidationFailure("A command is required.");
-            return 3;
+            return CliExitCodes.Validation;
         }
 
         RpcRequestEnvelope request;
@@ -24,12 +25,6 @@ internal static class Program
         try
         {
             var parsed = CliArguments.Parse(args);
-            if (!IsKnownCommand(parsed.Command))
-            {
-                throw new ArgumentException($"Unsupported command: {parsed.Command}");
-            }
-
-            pipeName = GetOption(parsed.Options, "pipe", DefaultPipeName);
             timeoutMs = int.TryParse(GetOption(parsed.Options, "timeout-ms", DefaultTimeoutMs.ToString()), out var ms)
                 ? ms
                 : DefaultTimeoutMs;
@@ -37,6 +32,19 @@ internal static class Program
             {
                 throw new ArgumentException("--timeout-ms must be greater than 0.");
             }
+
+            if (parsed.Command == CommandNames.Sessions)
+            {
+                WriteSessionsResponse();
+                return CliExitCodes.Success;
+            }
+
+            if (!IsKnownCommand(parsed.Command))
+            {
+                throw new ArgumentException($"Unsupported command: {parsed.Command}");
+            }
+
+            pipeName = ResolvePipeName(parsed.Options);
 
             var payload = BuildParams(parsed);
             request = new RpcRequestEnvelope
@@ -49,7 +57,7 @@ internal static class Program
         catch (Exception ex)
         {
             WriteValidationFailure(ex.Message);
-            return 3;
+            return CliExitCodes.Validation;
         }
 
         var requestJson = JsonSerializer.Serialize(request, ProtocolJson.Options);
@@ -68,7 +76,7 @@ internal static class Program
                 : ex.Message;
             var error = RpcResponse.Failure(request.Command, "plugin_unavailable", message, request.Id);
             Console.Out.WriteLine(JsonSerializer.Serialize(error, ProtocolJson.Options));
-            return 2;
+            return CliExitCodes.PluginUnavailable;
         }
 
         Console.Out.WriteLine(responseJson);
@@ -76,22 +84,11 @@ internal static class Program
         try
         {
             var response = JsonSerializer.Deserialize<RpcResponseEnvelope>(responseJson, ProtocolJson.Options);
-            if (response?.Ok == true)
-            {
-                return 0;
-            }
-
-            return response?.Error?.Code switch
-            {
-                "plugin_unavailable" => 2,
-                "validation" => 3,
-                "solve_timeout" => 4,
-                _ => 1
-            };
+            return CliExitCodes.FromResponse(response);
         }
         catch
         {
-            return 1;
+            return CliExitCodes.RuntimeFailure;
         }
     }
 
@@ -104,6 +101,37 @@ internal static class Program
             or CommandNames.GraphApply
             or CommandNames.SolveRun
             or CommandNames.DebugRead;
+    }
+
+    private static string ResolvePipeName(Dictionary<string, string?> options)
+    {
+        var explicitPipe = GetOption(options, "pipe");
+        if (!string.IsNullOrWhiteSpace(explicitPipe))
+        {
+            return explicitPipe;
+        }
+
+        var sessions = GhCliSessionRegistry.ReadSessions().Sessions;
+        var sessionSelector = GetOption(options, "session");
+        if (!string.IsNullOrWhiteSpace(sessionSelector))
+        {
+            return GhCliSessionRegistry.ResolveSession(sessionSelector, sessions).PipeName;
+        }
+
+        return sessions.Count switch
+        {
+            0 => GhCliSessionRegistry.LegacyPipeName,
+            1 => sessions[0].PipeName,
+            _ => throw new ArgumentException(
+                "Multiple GhCLI sessions are active. Run `GhCLI sessions`, then pass `--session <alias>` or `--pipe <name>`.")
+        };
+    }
+
+    private static void WriteSessionsResponse()
+    {
+        var sessions = GhCliSessionRegistry.ReadSessions();
+        var response = RpcResponse.Success(CommandNames.Sessions, sessions);
+        Console.Out.WriteLine(JsonSerializer.Serialize(response, ProtocolJson.Options));
     }
 
     private static void WriteValidationFailure(string message)
@@ -184,7 +212,7 @@ internal static class Program
         }
 
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
-        return doc.RootElement.Clone();
+        return JsonPayloadPathResolver.ResolveFilePaths(doc.RootElement, path);
     }
 
     private static JsonElement ToElement<T>(T value)
@@ -215,12 +243,13 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.Error.WriteLine("Usage:");
-        Console.Error.WriteLine("  GhCLI status [--pipe <name>]");
-        Console.Error.WriteLine("  GhCLI canvas.summary [--scope full|selected]");
-        Console.Error.WriteLine("  GhCLI node.read --node-id <id> [--include-source true]");
-        Console.Error.WriteLine("  GhCLI txn.apply --file <transaction.json>");
-        Console.Error.WriteLine("  GhCLI graph.apply --file <graph.json>");
-        Console.Error.WriteLine("  GhCLI solve.run [--node-id <id>]");
-        Console.Error.WriteLine("  GhCLI debug.read --node-id <id>");
+        Console.Error.WriteLine("  GhCLI sessions");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] status [--pipe <name>]");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] canvas.summary [--scope full|selected]");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] node.read --node-id <id> [--include-source true]");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] txn.apply --file <transaction.json>");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] graph.apply --file <graph.json>");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] solve.run [--node-id <id>]");
+        Console.Error.WriteLine("  GhCLI [--session <alias|pid|session-id>] debug.read --node-id <id>");
     }
 }

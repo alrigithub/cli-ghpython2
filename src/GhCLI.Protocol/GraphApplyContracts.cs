@@ -13,7 +13,10 @@ public sealed class GraphApplyRequest
     public List<JsonElement> Panels { get; set; } = new();
     public List<JsonElement> Notes { get; set; } = new();
     public List<JsonElement> PythonNodes { get; set; } = new();
+    public List<JsonElement> Components { get; set; } = new();
     public List<JsonElement> Wires { get; set; } = new();
+    public JsonElement? Preview { get; set; }
+    public JsonElement? LayerVisibility { get; set; }
 
     [JsonPropertyName("transaction_id")]
     public string TransactionIdSnake
@@ -41,5 +44,12 @@ public sealed class GraphApplyRequest
     {
         get => PythonNodes;
         set => PythonNodes = value;
+    }
+
+    [JsonPropertyName("layer_visibility")]
+    public JsonElement? LayerVisibilitySnake
+    {
+        get => LayerVisibility;
+        set => LayerVisibility = value;
     }
 }

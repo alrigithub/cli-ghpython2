@@ -127,6 +127,11 @@ internal sealed partial class GrasshopperRuntime
             return "native_component";
         }
 
+        if (obj is IGH_Param)
+        {
+            return "param";
+        }
+
         return "unknown";
     }
 
@@ -160,6 +165,7 @@ internal sealed partial class GrasshopperRuntime
             "panel" => "PANEL",
             "value_list" => "VLIST",
             "group" => "GROUP",
+            "param" => "PARAM",
             _ => "NODE"
         };
     }
@@ -263,6 +269,33 @@ internal sealed partial class GrasshopperRuntime
             catch
             {
                 // try next overload
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryInvokeNoArg(object target, params string[] methodNames)
+    {
+        foreach (var methodName in methodNames)
+        {
+            var method = target.GetType()
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(x => x.Name == methodName && x.GetParameters().Length == 0);
+
+            if (method is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(target, Array.Empty<object>());
+                return true;
+            }
+            catch
+            {
+                // Try the next possible method name.
             }
         }
 

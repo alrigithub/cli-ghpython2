@@ -22,7 +22,7 @@ Install means:
 3. Tell the user to restart Rhino if Rhino was open.
 4. After Rhino restarts, verify with `GhCLI.exe status`.
 
-Default to `Debug` unless the user explicitly passes `release`.
+Default to `Release` unless the user explicitly passes `debug`.
 
 ## Required Files
 
@@ -50,34 +50,12 @@ Required files:
 Run this from the repo root:
 
 ```powershell
-$Configuration = "Debug"
-if ("$ARGUMENTS".Trim().ToLowerInvariant() -eq "release") {
-  $Configuration = "Release"
+$Configuration = "Release"
+if ("$ARGUMENTS".Trim().ToLowerInvariant() -eq "debug") {
+  $Configuration = "Debug"
 }
 
-dotnet build GhCLI.sln --configuration $Configuration --nologo
-
-$Source = Join-Path (Get-Location) "src\GhCLI.Plugin\bin\$Configuration\net7.0-windows"
-$Target = Join-Path $env:APPDATA "Grasshopper\Libraries\GhCLI"
-New-Item -ItemType Directory -Force -Path $Target | Out-Null
-
-$Files = @(
-  "GhCLI.Plugin.gha",
-  "GhCLI.Plugin.deps.json",
-  "GhCLI.Core.dll",
-  "GhCLI.Protocol.dll"
-)
-
-foreach ($File in $Files) {
-  $From = Join-Path $Source $File
-  if (-not (Test-Path -LiteralPath $From)) {
-    throw "Missing build output: $From"
-  }
-  Copy-Item -LiteralPath $From -Destination $Target -Force
-}
-
-Write-Host "Installed GhCLI plugin to $Target"
-Write-Host "Restart Rhino, then run: src\GhCLI\bin\$Configuration\net8.0\GhCLI.exe status"
+scripts\install-plugin.ps1 -Configuration $Configuration
 ```
 
 ## Failure Handling

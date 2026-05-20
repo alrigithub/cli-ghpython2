@@ -27,3 +27,6 @@ examples/test_baseline_*/
 # Temp
 /tmp/
 /temp/
+
+# Release packages
+/dist/

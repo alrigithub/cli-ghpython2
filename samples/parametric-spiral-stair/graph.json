@@ -88,7 +88,7 @@
       "node_id": "parametric_spiral_stair",
       "nickname": "Parametric Spiral Stair",
       "runtime": "cpython3",
-      "file_path": "C:/Users/ritiv/Desktop/gh-cli/cli-ghpython2/samples/parametric-spiral-stair/script.py",
+      "file_path": "script.py",
       "position": {
         "x": 390,
         "y": 470

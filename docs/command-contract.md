@@ -27,6 +27,26 @@ Every command returns this shape:
 
 ## Commands
 
+### `sessions`
+
+Lists registered GhCLI plugin sessions from `%LOCALAPPDATA%\GhCLI\sessions.json`.
+
+```powershell
+src\GhCLI\bin\Release\net8.0\GhCLI.exe sessions
+```
+
+Key response fields:
+
+- `registryPath`
+- `sessions`
+- `sessions[].alias`
+- `sessions[].pipeName`
+- `sessions[].processId`
+- `sessions[].hostKind`
+- `sessions[].windowTitle`
+
+When more than one session is active, pass `--session <alias|pid|session-id|pipe-name>` to any pipe-backed command.
+
 ### `status`
 
 Checks whether Rhino, Grasshopper, and the plugin are reachable.
@@ -39,6 +59,7 @@ Key response fields:
 
 - `pluginLoaded`
 - `pipeConnected`
+- `session`
 - `rhinoVersion`
 - `grasshopperLoaded`
 - `activeDocument`
@@ -64,7 +85,7 @@ Key response fields:
 
 ### `graph.apply`
 
-Preferred write command for agents. It creates or updates controls, Python nodes, panels, notes, and wires in one staged operation.
+Preferred write command for agents. It creates or updates controls, Python nodes, native display components, panels, notes, and wires in one staged operation.
 
 ```powershell
 src\GhCLI\bin\Debug\net8.0\GhCLI.exe graph.apply --file templates\graph-apply-basic.json --timeout-ms 15000
@@ -80,17 +101,41 @@ Input fields:
 - `panels`
 - `notes`
 - `pythonNodes`
+- `components`
 - `wires`
+- `preview`
+- `layerVisibility` / `layer_visibility`
 
 Python node fields:
 
 - `node_id`
 - `nickname`
 - `runtime`: use `cpython3`
-- `file_path`
+- `file_path`: absolute path recommended; when using `GhCLI.exe graph.apply --file <graph.json>`, relative paths are resolved from the JSON file's folder before the request is sent
 - `position`
 - `inputs`
 - `outputs`
+
+Native component fields:
+
+- `node_id`
+- `component`: component name such as `CustomPreview`, `TextTag`, `PointList`, `VectorDisplay`, or `Colour Swatch`
+- `component_guid`: optional explicit Grasshopper component GUID
+- `nickname`
+- `position`
+- `color` / `colour`: optional swatch value for colour swatches
+
+Preview focus fields:
+
+- `mode`: `isolate`, `restore`, `show`, or `hide`
+- `state_id`: optional key used to restore a previous isolate state
+- `node_ids`: required for `isolate`, `show`, and `hide`
+
+Layer visibility fields:
+
+- `mode`: `isolate`, `restore`, `show`, or `hide`
+- `state_id`: optional key used to restore a previous bake-layer isolate state
+- `layer_root`: required except for `restore`
 
 Wire fields:
 
@@ -112,7 +157,7 @@ Response fields:
 
 ### `txn.apply`
 
-Lower-level mutation command. It remains supported for compatibility, but agents should prefer `graph.apply`.
+Lower-level mutation command. It remains supported for compatibility and advanced/internal patches, but agents should prefer `graph.apply`.
 
 Input fields:
 
@@ -124,6 +169,7 @@ Input fields:
 Supported operation types:
 
 - `upsert_python_node`
+- `upsert_component`
 - `upsert_slider`
 - `upsert_toggle`
 - `upsert_panel`
@@ -131,6 +177,8 @@ Supported operation types:
 - `set_wires`
 - `move_node`
 - `set_value`
+- `set_preview`
+- `set_layer_visibility`
 
 ### `debug.read`
 

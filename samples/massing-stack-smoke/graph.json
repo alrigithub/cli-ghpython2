@@ -1,0 +1,195 @@
+{
+  "transactionId": "massing-stack-smoke-001",
+  "solveAfter": true,
+  "debugAfter": [
+    "SMOKE_01_massing",
+    "SMOKE_02_slabs",
+    "SMOKE_03_preview",
+    "SMOKE_04_bake"
+  ],
+  "sliders": [
+    { "node_id": "SMOKE_width", "nickname": "Width mm", "min": 12000, "max": 72000, "value": 36000, "position": { "x": 40, "y": 120 } },
+    { "node_id": "SMOKE_depth", "nickname": "Depth mm", "min": 12000, "max": 48000, "value": 24000, "position": { "x": 40, "y": 180 } },
+    { "node_id": "SMOKE_height", "nickname": "Height mm", "min": 12000, "max": 90000, "value": 42000, "position": { "x": 40, "y": 240 } },
+    { "node_id": "SMOKE_levels", "nickname": "Levels", "min": 4, "max": 24, "value": 12, "position": { "x": 40, "y": 300 } },
+    { "node_id": "SMOKE_grid_spacing", "nickname": "Grid mm", "min": 3000, "max": 12000, "value": 6000, "position": { "x": 40, "y": 360 } },
+    { "node_id": "SMOKE_preview_point_size", "nickname": "Point List Size", "min": 200, "max": 2400, "value": 900, "position": { "x": 40, "y": 500 } }
+  ],
+  "toggles": [
+    { "node_id": "SMOKE_BAKE_replace", "nickname": "Bake Replace", "value": true, "position": { "x": 40, "y": 820 } }
+  ],
+  "panels": [
+    { "node_id": "SMOKE_BAKE_layer_root", "nickname": "Layer Root", "text": "GHCLI_SMOKE", "position": { "x": 40, "y": 880 } },
+    { "node_id": "SMOKE_PANEL_01_dbg", "nickname": "01 Massing Debug", "position": { "x": 700, "y": 160 } },
+    { "node_id": "SMOKE_PANEL_02_dbg", "nickname": "02 Slabs Debug", "position": { "x": 700, "y": 380 } },
+    { "node_id": "SMOKE_PANEL_total", "nickname": "Total GFA", "position": { "x": 700, "y": 560 } },
+    { "node_id": "SMOKE_PANEL_03_dbg", "nickname": "03 Area Debug", "position": { "x": 920, "y": 560 } },
+    { "node_id": "SMOKE_PANEL_04_dbg", "nickname": "04 Bake Debug", "position": { "x": 920, "y": 780 } }
+  ],
+  "notes": [
+    {
+      "node_id": "SMOKE_NOTE_title",
+      "nickname": "GHCLI Smoke Test: Massing -> Slabs -> Areas",
+      "text": "GHCLI Smoke Test: Massing -> Slabs -> Areas",
+      "position": { "x": 330, "y": 70 }
+    },
+    {
+      "node_id": "SMOKE_NOTE_bake",
+      "nickname": "Manual bake only",
+      "text": "Manual bake only: press Bake Button to write tagged Rhino layers",
+      "position": { "x": 40, "y": 700 }
+    }
+  ],
+  "pythonNodes": [
+    {
+      "node_id": "SMOKE_01_massing",
+      "nickname": "01 Massing + Levels + Grids",
+      "runtime": "cpython3",
+      "file_path": "smoke_massing_levels_grids.py",
+      "position": { "x": 330, "y": 190 },
+      "inputs": [
+        { "name": "width", "typeName": "float", "access": "item" },
+        { "name": "depth", "typeName": "float", "access": "item" },
+        { "name": "height", "typeName": "float", "access": "item" },
+        { "name": "levels", "typeName": "int", "access": "item" },
+        { "name": "grid_spacing", "typeName": "float", "access": "item" }
+      ],
+      "outputs": [
+        { "name": "massing", "typeName": "Brep", "access": "item" },
+        { "name": "level_curves", "typeName": "Curve", "access": "list" },
+        { "name": "grid_curves", "typeName": "Curve", "access": "list" },
+        { "name": "dbg", "typeName": "string", "access": "item" }
+      ]
+    },
+    {
+      "node_id": "SMOKE_02_slabs",
+      "nickname": "02 Floor Slabs",
+      "runtime": "cpython3",
+      "file_path": "smoke_floor_slabs.py",
+      "position": { "x": 330, "y": 430 },
+      "inputs": [
+        { "name": "massing", "typeName": "Brep", "access": "item" },
+        { "name": "level_curves", "typeName": "Curve", "access": "list" },
+        { "name": "grid_curves", "typeName": "Curve", "access": "list" }
+      ],
+      "outputs": [
+        { "name": "slab_breps", "typeName": "Brep", "access": "list" },
+        { "name": "slab_curves", "typeName": "Curve", "access": "list" },
+        { "name": "centroids", "typeName": "Point3d", "access": "list" },
+        { "name": "areas", "typeName": "float", "access": "list" },
+        { "name": "level_names", "typeName": "string", "access": "list" },
+        { "name": "total_area_m2", "typeName": "float", "access": "item" },
+        { "name": "dbg", "typeName": "string", "access": "item" }
+      ]
+    },
+    {
+      "node_id": "SMOKE_03_preview",
+      "nickname": "03 Area Preview",
+      "runtime": "cpython3",
+      "file_path": "smoke_area_preview.py",
+      "position": { "x": 600, "y": 560 },
+      "inputs": [
+        { "name": "slab_curves", "typeName": "Curve", "access": "list" },
+        { "name": "centroids", "typeName": "Point3d", "access": "list" },
+        { "name": "areas", "typeName": "float", "access": "list" },
+        { "name": "level_names", "typeName": "string", "access": "list" },
+        { "name": "total_area_m2", "typeName": "float", "access": "item" }
+      ],
+      "outputs": [
+        { "name": "preview_curves", "typeName": "Curve", "access": "list" },
+        { "name": "preview_points", "typeName": "Point3d", "access": "list" },
+        { "name": "area_labels", "typeName": "string", "access": "list" },
+        { "name": "colors", "typeName": "object", "access": "list" },
+        { "name": "materials", "typeName": "object", "access": "list" },
+        { "name": "vector_anchors", "typeName": "Point3d", "access": "list" },
+        { "name": "preview_vectors", "typeName": "Vector3d", "access": "list" },
+        { "name": "total_text", "typeName": "string", "access": "item" },
+        { "name": "dbg", "typeName": "string", "access": "item" }
+      ]
+    },
+    {
+      "node_id": "SMOKE_04_bake",
+      "nickname": "04 Bake To Rhino",
+      "runtime": "cpython3",
+      "file_path": "smoke_bake_to_rhino.py",
+      "position": { "x": 600, "y": 810 },
+      "inputs": [
+        { "name": "run", "typeName": "bool", "access": "item" },
+        { "name": "replace", "typeName": "bool", "access": "item" },
+        { "name": "massing", "typeName": "Brep", "access": "item" },
+        { "name": "level_curves", "typeName": "Curve", "access": "list" },
+        { "name": "grid_curves", "typeName": "Curve", "access": "list" },
+        { "name": "slab_breps", "typeName": "Brep", "access": "list" },
+        { "name": "centroids", "typeName": "Point3d", "access": "list" },
+        { "name": "area_labels", "typeName": "string", "access": "list" },
+        { "name": "colors", "typeName": "object", "access": "list" },
+        { "name": "layer_root", "typeName": "string", "access": "item" }
+      ],
+      "outputs": [
+        { "name": "baked_ids", "typeName": "string", "access": "list" },
+        { "name": "dbg", "typeName": "string", "access": "item" }
+      ]
+    }
+  ],
+  "components": [
+    { "node_id": "SMOKE_BAKE_button", "component": "Button", "nickname": "Bake Button", "position": { "x": 40, "y": 760 } },
+    { "node_id": "SMOKE_VIEW_custom_preview", "component": "CustomPreview", "nickname": "Custom Preview", "position": { "x": 920, "y": 120 } },
+    { "node_id": "SMOKE_VIEW_colour_swatch", "component": "Colour Swatch", "nickname": "Colour Swatch", "color": "#B43CA5DC", "position": { "x": 700, "y": 120 } },
+    { "node_id": "SMOKE_VIEW_text_tag", "component": "TextTag", "nickname": "Text Tag", "position": { "x": 920, "y": 250 } },
+    { "node_id": "SMOKE_VIEW_point_list", "component": "PointList", "nickname": "Point List", "position": { "x": 920, "y": 380 } },
+    { "node_id": "SMOKE_VIEW_vector_display", "component": "VectorDisplay", "nickname": "Vector Display", "position": { "x": 920, "y": 500 } }
+  ],
+  "preview": {
+    "mode": "isolate",
+    "state_id": "massing-stack-smoke",
+    "node_ids": [
+      "SMOKE_VIEW_custom_preview",
+      "SMOKE_VIEW_colour_swatch",
+      "SMOKE_VIEW_text_tag",
+      "SMOKE_VIEW_point_list",
+      "SMOKE_VIEW_vector_display"
+    ]
+  },
+  "wires": [
+    { "source_node_id": "SMOKE_width", "source_port": "0", "target_node_id": "SMOKE_01_massing", "target_port": "width" },
+    { "source_node_id": "SMOKE_depth", "source_port": "0", "target_node_id": "SMOKE_01_massing", "target_port": "depth" },
+    { "source_node_id": "SMOKE_height", "source_port": "0", "target_node_id": "SMOKE_01_massing", "target_port": "height" },
+    { "source_node_id": "SMOKE_levels", "source_port": "0", "target_node_id": "SMOKE_01_massing", "target_port": "levels" },
+    { "source_node_id": "SMOKE_grid_spacing", "source_port": "0", "target_node_id": "SMOKE_01_massing", "target_port": "grid_spacing" },
+    { "source_node_id": "SMOKE_01_massing", "source_port": "dbg", "target_node_id": "SMOKE_PANEL_01_dbg", "target_port": "0" },
+
+    { "source_node_id": "SMOKE_01_massing", "source_port": "massing", "target_node_id": "SMOKE_02_slabs", "target_port": "massing" },
+    { "source_node_id": "SMOKE_01_massing", "source_port": "level_curves", "target_node_id": "SMOKE_02_slabs", "target_port": "level_curves" },
+    { "source_node_id": "SMOKE_01_massing", "source_port": "grid_curves", "target_node_id": "SMOKE_02_slabs", "target_port": "grid_curves" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "dbg", "target_node_id": "SMOKE_PANEL_02_dbg", "target_port": "0" },
+
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "slab_curves", "target_node_id": "SMOKE_03_preview", "target_port": "slab_curves" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "centroids", "target_node_id": "SMOKE_03_preview", "target_port": "centroids" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "areas", "target_node_id": "SMOKE_03_preview", "target_port": "areas" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "level_names", "target_node_id": "SMOKE_03_preview", "target_port": "level_names" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "total_area_m2", "target_node_id": "SMOKE_03_preview", "target_port": "total_area_m2" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "total_text", "target_node_id": "SMOKE_PANEL_total", "target_port": "0" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "dbg", "target_node_id": "SMOKE_PANEL_03_dbg", "target_port": "0" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "preview_curves", "target_node_id": "SMOKE_VIEW_custom_preview", "target_port": "0" },
+    { "source_node_id": "SMOKE_VIEW_colour_swatch", "source_port": "0", "target_node_id": "SMOKE_VIEW_custom_preview", "target_port": "1" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "preview_points", "target_node_id": "SMOKE_VIEW_text_tag", "target_port": "0" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "area_labels", "target_node_id": "SMOKE_VIEW_text_tag", "target_port": "1" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "colors", "target_node_id": "SMOKE_VIEW_text_tag", "target_port": "2" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "preview_points", "target_node_id": "SMOKE_VIEW_point_list", "target_port": "0" },
+    { "source_node_id": "SMOKE_preview_point_size", "source_port": "0", "target_node_id": "SMOKE_VIEW_point_list", "target_port": "S" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "vector_anchors", "target_node_id": "SMOKE_VIEW_vector_display", "target_port": "0" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "preview_vectors", "target_node_id": "SMOKE_VIEW_vector_display", "target_port": "1" },
+
+    { "source_node_id": "SMOKE_BAKE_button", "source_port": "0", "target_node_id": "SMOKE_04_bake", "target_port": "run" },
+    { "source_node_id": "SMOKE_BAKE_replace", "source_port": "0", "target_node_id": "SMOKE_04_bake", "target_port": "replace" },
+    { "source_node_id": "SMOKE_01_massing", "source_port": "massing", "target_node_id": "SMOKE_04_bake", "target_port": "massing" },
+    { "source_node_id": "SMOKE_01_massing", "source_port": "level_curves", "target_node_id": "SMOKE_04_bake", "target_port": "level_curves" },
+    { "source_node_id": "SMOKE_01_massing", "source_port": "grid_curves", "target_node_id": "SMOKE_04_bake", "target_port": "grid_curves" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "slab_breps", "target_node_id": "SMOKE_04_bake", "target_port": "slab_breps" },
+    { "source_node_id": "SMOKE_02_slabs", "source_port": "centroids", "target_node_id": "SMOKE_04_bake", "target_port": "centroids" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "area_labels", "target_node_id": "SMOKE_04_bake", "target_port": "area_labels" },
+    { "source_node_id": "SMOKE_03_preview", "source_port": "colors", "target_node_id": "SMOKE_04_bake", "target_port": "colors" },
+    { "source_node_id": "SMOKE_BAKE_layer_root", "source_port": "0", "target_node_id": "SMOKE_04_bake", "target_port": "layer_root" },
+    { "source_node_id": "SMOKE_04_bake", "source_port": "dbg", "target_node_id": "SMOKE_PANEL_04_dbg", "target_port": "0" }
+  ]
+}

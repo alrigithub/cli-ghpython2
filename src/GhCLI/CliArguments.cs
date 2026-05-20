@@ -2,7 +2,7 @@ namespace GhCLI;
 
 internal sealed class CliArguments
 {
-    public required string Command { get; init; }
+    public string Command { get; set; } = string.Empty;
     public Dictionary<string, string?> Options { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static CliArguments Parse(string[] args)
@@ -12,12 +12,17 @@ internal sealed class CliArguments
             throw new ArgumentException("A command is required.");
         }
 
-        var parsed = new CliArguments { Command = args[0].Trim() };
-        for (var i = 1; i < args.Length; i++)
+        var parsed = new CliArguments();
+        for (var i = 0; i < args.Length; i++)
         {
             var token = args[i];
             if (!token.StartsWith("--", StringComparison.Ordinal))
             {
+                if (string.IsNullOrWhiteSpace(parsed.Command))
+                {
+                    parsed.Command = token.Trim();
+                }
+
                 continue;
             }
 
@@ -35,6 +40,11 @@ internal sealed class CliArguments
             }
 
             parsed.Options[key] = value;
+        }
+
+        if (string.IsNullOrWhiteSpace(parsed.Command))
+        {
+            throw new ArgumentException("A command is required.");
         }
 
         return parsed;

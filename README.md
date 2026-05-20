@@ -73,6 +73,17 @@ src\GhCLI\bin\Debug\net8.0\GhCLI.exe node.read --node-id example_node
 src\GhCLI\bin\Debug\net8.0\GhCLI.exe solve.run
 ```
 
+Stable public commands are:
+
+- `sessions`
+- `status`
+- `canvas.summary`
+- `graph.apply`
+- `debug.read`
+- `node.read`
+- `solve.run`
+- `txn.apply` for lower-level advanced/internal patches
+
 CLI stdout is always the final JSON response. Diagnostics go to stderr.
 
 Default pipe name:
@@ -87,9 +98,33 @@ Override with:
 $env:GHCLI_PIPE_NAME = "custom.pipe.name"
 ```
 
+## Multiple Rhino/Revit Sessions
+
+New plugin instances register a unique session pipe under:
+
+```text
+%LOCALAPPDATA%\GhCLI\sessions.json
+```
+
+List active sessions:
+
+```powershell
+src\GhCLI\bin\Release\net8.0\GhCLI.exe sessions
+```
+
+Target a specific Rhino or Revit-hosted Grasshopper session by alias, process id, session id prefix, or pipe name:
+
+```powershell
+src\GhCLI\bin\Release\net8.0\GhCLI.exe --session rhino-87520 status
+src\GhCLI\bin\Release\net8.0\GhCLI.exe --session revit-54620 canvas.summary
+src\GhCLI\bin\Release\net8.0\GhCLI.exe --session rhino-87520 graph.apply --file temp\graph.json
+```
+
+If exactly one registered session is active, commands auto-target it. If multiple sessions are active, pass `--session` or `--pipe` explicitly. `--pipe` remains available for manual/advanced routing and compatibility with older plugin builds that still use `ghcli.v1`.
+
 ## `graph.apply`
 
-`graph.apply` is the main write interface. It batches controls, Python nodes, panels, notes, wires, solve, and debug reads into one request.
+`graph.apply` is the main write interface. It batches controls, Python nodes, native display helpers, panels, notes, wires, solve, and debug reads into one request.
 
 Supported top-level arrays:
 
@@ -98,7 +133,14 @@ Supported top-level arrays:
 - `panels`
 - `notes`
 - `pythonNodes`
+- `components`
 - `wires`
+
+Optional focus helpers:
+
+- `preview` can isolate/show/hide/restore Grasshopper preview for specific nodes.
+- `layerVisibility` can isolate/show/hide/restore Rhino layers for explicit bake workflows.
+- Native helpers are created with `components`, for example `CustomPreview`, `TextTag`, `PointList`, `VectorDisplay`, and `Colour Swatch`.
 
 Minimal pattern:
 
@@ -165,10 +207,22 @@ Claude Code catalog helper:
 
 Claude Code should normally run `/install`. Manual install is here only for troubleshooting or non-Claude setups.
 
-Build:
+Release install:
 
 ```powershell
-dotnet build GhCLI.sln
+scripts\install-plugin.ps1
+```
+
+Debug install:
+
+```powershell
+scripts\install-plugin.ps1 -Configuration Debug
+```
+
+Release package:
+
+```powershell
+scripts\package-release.ps1
 ```
 
 Build outputs:

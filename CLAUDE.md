@@ -68,6 +68,7 @@ status -> canvas.summary -> write .py + graph.json -> graph.apply -> patch if ne
 
 Commands currently implemented:
 
+- `sessions`
 - `status`
 - `canvas.summary`
 - `node.read`
@@ -79,6 +80,7 @@ Commands currently implemented:
 Transaction ops currently implemented:
 
 - `upsert_python_node`
+- `upsert_component`
 - `upsert_slider`
 - `upsert_toggle`
 - `upsert_panel`
@@ -86,8 +88,12 @@ Transaction ops currently implemented:
 - `set_wires`
 - `move_node`
 - `set_value`
+- `set_preview`
+- `set_layer_visibility`
 
 Do not use planned commands or ops unless the source shows they now exist.
+
+When multiple Rhino/Revit hosts are open, run `sessions` and pass `--session <alias|pid|session-id|pipe-name>` to target the intended canvas. If exactly one registered session exists, GhCLI auto-targets it. If no registered session exists, the CLI falls back to the legacy `ghcli.v1` pipe for compatibility with older loaded plugins.
 
 ## Component Catalog
 
@@ -263,6 +269,12 @@ Prefer `graph.apply` for agent-created definitions. It creates controls, Python 
 ```
 
 Use raw `txn.apply` only for lower-level patches or unusual operation ordering. `graph.apply` internally stages node creation, materializes Python ports, wires after ports exist, solves once, and returns `debugReads` for `debugAfter`.
+
+Optional display helpers:
+
+- Use `components` / `upsert_component` for native display helpers such as `CustomPreview`, `TextTag`, `PointList`, `VectorDisplay`, and `Colour Swatch`.
+- Use `preview: { "mode": "isolate", "node_ids": [...] }` only when the user needs a focused viewport. Restore with `set_preview` mode `restore` using the same `state_id`.
+- Use `set_layer_visibility` for baked Rhino layer focus/restore. Keep bake side effects explicit and under a dedicated layer root.
 
 Wiring rules:
 

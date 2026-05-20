@@ -8,6 +8,8 @@ using GhCLI.Protocol;
 using Grasshopper;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
+using Rhino;
+using Rhino.DocObjects;
 
 namespace GhCLI.Plugin.Runtime;
 
@@ -27,12 +29,19 @@ internal sealed partial class GrasshopperRuntime
 
             var result = new TransactionApplyData();
             var wireOperations = new List<TransactionOperationModel>();
+            var postSolveOperations = new List<TransactionOperationModel>();
 
             foreach (var operation in request.Operations)
             {
                 if (operation.Op == TransactionOps.SetWires)
                 {
                     wireOperations.Add(operation);
+                    continue;
+                }
+
+                if (operation.Op is TransactionOps.SetPreview or TransactionOps.SetLayerVisibility)
+                {
+                    postSolveOperations.Add(operation);
                     continue;
                 }
 
@@ -44,9 +53,11 @@ internal sealed partial class GrasshopperRuntime
                 ApplySetWires(doc, operation.Args, result);
             }
 
-            if (request.SolveAfter || request.DebugAfter.Count > 0)
+            SolveAfterTransaction(request);
+
+            foreach (var operation in postSolveOperations)
             {
-                _ = SolveRun(new SolveRunRequest());
+                ApplyTransactionOperation(doc, operation, result);
             }
 
             var summary = BuildCanvasSummary(doc, "full");
@@ -63,6 +74,20 @@ internal sealed partial class GrasshopperRuntime
         }
     }
 
+    private void SolveAfterTransaction(TransactionApplyRequest request)
+    {
+        if (request.DebugAfter.Count > 0)
+        {
+            _ = SolveRun(new SolveRunRequest());
+            return;
+        }
+
+        if (request.SolveAfter)
+        {
+            _ = SolveRun(new SolveRunRequest());
+        }
+    }
+
     public TransactionApplyData ApplyGraph(GraphApplyRequest request)
     {
         var operations = new List<TransactionOperationModel>();
@@ -71,6 +96,7 @@ internal sealed partial class GrasshopperRuntime
         operations.AddRange(request.Panels.Select(x => CreateOperation(TransactionOps.UpsertPanel, x)));
         operations.AddRange(request.Notes.Select(x => CreateOperation(TransactionOps.UpsertNote, x)));
         operations.AddRange(request.PythonNodes.Select(x => CreateOperation(TransactionOps.UpsertPythonNode, x)));
+        operations.AddRange(request.Components.Select(x => CreateOperation(TransactionOps.UpsertComponent, x)));
 
         if (request.Wires.Count > 0)
         {
@@ -79,6 +105,16 @@ internal sealed partial class GrasshopperRuntime
                 Op = TransactionOps.SetWires,
                 Args = ToJsonElement(new { connect = request.Wires })
             });
+        }
+
+        if (request.Preview is { ValueKind: JsonValueKind.Object } preview)
+        {
+            operations.Add(CreateOperation(TransactionOps.SetPreview, preview));
+        }
+
+        if (request.LayerVisibility is { ValueKind: JsonValueKind.Object } layerVisibility)
+        {
+            operations.Add(CreateOperation(TransactionOps.SetLayerVisibility, layerVisibility));
         }
 
         return ApplyTransaction(new TransactionApplyRequest
@@ -112,6 +148,9 @@ internal sealed partial class GrasshopperRuntime
             case TransactionOps.UpsertPythonNode:
                 ApplyUpsertPythonNode(doc, operation.Args, result);
                 break;
+            case TransactionOps.UpsertComponent:
+                ApplyUpsertComponent(doc, operation.Args, result);
+                break;
             case TransactionOps.UpsertSlider:
                 ApplyUpsertSlider(doc, operation.Args, result);
                 break;
@@ -130,103 +169,14 @@ internal sealed partial class GrasshopperRuntime
             case TransactionOps.SetValue:
                 ApplySetValue(doc, operation.Args, result);
                 break;
+            case TransactionOps.SetPreview:
+                ApplySetPreview(doc, operation.Args, result);
+                break;
+            case TransactionOps.SetLayerVisibility:
+                ApplySetLayerVisibility(operation.Args, result);
+                break;
             default:
                 throw new CommandValidationException($"Unsupported transaction op '{operation.Op}'.");
-        }
-    }
-
-    private void PreValidateTransaction(GH_Document doc, TransactionApplyRequest request)
-    {
-        var knownNodeIds = doc.Objects
-            .OfType<IGH_DocumentObject>()
-            .Select(obj => _nodeMetadata.GetOrCreateNodeId(obj, KindPrefix(DetermineKind(obj))))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var operation in request.Operations)
-        {
-            if (operation.Args.ValueKind != JsonValueKind.Object)
-            {
-                throw new CommandValidationException($"Operation '{operation.Op}' requires args object.");
-            }
-
-            switch (operation.Op)
-            {
-                case TransactionOps.UpsertPythonNode:
-                case TransactionOps.UpsertSlider:
-                case TransactionOps.UpsertToggle:
-                case TransactionOps.UpsertPanel:
-                case TransactionOps.UpsertNote:
-                    {
-                        var nodeId = operation.Args.RequireString("node_id");
-                        knownNodeIds.Add(nodeId);
-                        if (operation.Op == TransactionOps.UpsertPythonNode)
-                        {
-                            var filePath = operation.Args.RequireString("file_path");
-                            var resolved = _fileResolver.ResolvePath(filePath);
-                            if (!File.Exists(resolved))
-                            {
-                                throw new CommandValidationException($"Python source file not found: {resolved}");
-                            }
-                        }
-
-                        break;
-                    }
-                case TransactionOps.MoveNode:
-                case TransactionOps.SetValue:
-                    {
-                        var nodeId = operation.Args.RequireString("node_id");
-                        if (!knownNodeIds.Contains(nodeId))
-                        {
-                            throw new CommandValidationException($"Unknown node_id '{nodeId}' for op '{operation.Op}'.");
-                        }
-
-                        break;
-                    }
-                case TransactionOps.SetWires:
-                    {
-                        foreach (var wire in operation.Args.GetArray("connect"))
-                        {
-                            ValidateWireEndpoints(knownNodeIds, wire, operation.Op);
-                        }
-
-                        foreach (var wire in operation.Args.GetArray("disconnect"))
-                        {
-                            ValidateWireEndpoints(knownNodeIds, wire, operation.Op);
-                        }
-
-                        break;
-                    }
-                default:
-                    throw new CommandValidationException($"Unsupported transaction op '{operation.Op}'.");
-            }
-        }
-
-        foreach (var nodeId in request.DebugAfter)
-        {
-            if (!knownNodeIds.Contains(nodeId))
-            {
-                throw new CommandValidationException($"Unknown node_id '{nodeId}' in debugAfter.");
-            }
-        }
-    }
-
-    private static void ValidateWireEndpoints(HashSet<string> knownNodeIds, JsonElement wire, string opName)
-    {
-        if (wire.ValueKind != JsonValueKind.Object)
-        {
-            throw new CommandValidationException($"Wire entry in '{opName}' must be an object.");
-        }
-
-        var source = wire.RequireString("source_node_id");
-        var target = wire.RequireString("target_node_id");
-        if (!knownNodeIds.Contains(source))
-        {
-            throw new CommandValidationException($"Unknown source_node_id '{source}' in {opName}.");
-        }
-
-        if (!knownNodeIds.Contains(target))
-        {
-            throw new CommandValidationException($"Unknown target_node_id '{target}' in {opName}.");
         }
     }
 
@@ -280,6 +230,57 @@ internal sealed partial class GrasshopperRuntime
             FilePath = resolvedPath,
             SourceHash = Sha256Hasher.ShortHash(source)
         });
+
+        if (node is IGH_ActiveObject active)
+        {
+            active.ExpireSolution(false);
+        }
+    }
+
+    private void ApplyUpsertComponent(GH_Document doc, JsonElement args, TransactionApplyData result)
+    {
+        var nodeId = args.RequireString("node_id");
+        var componentName = TryGetJsonString(args, "component", "component_name", "name", "type");
+        var nickname = args.GetOptionalString("nickname") ?? componentName ?? nodeId;
+        var position = ReadPosition(args, 160, 120);
+
+        var existing = ResolveNode(doc, nodeId, null);
+        IGH_DocumentObject node;
+
+        if (existing is null)
+        {
+            node = CreateNativeComponent(args)
+                   ?? throw new CommandValidationException(
+                       $"Could not create native Grasshopper component for node_id '{nodeId}'. " +
+                       "Provide a valid component_guid or component/name such as CustomPreview, TextTag, PointList, or VectorDisplay.");
+            node.CreateAttributes();
+            doc.AddObject(node, false);
+            _nodeMetadata.Bind(node.InstanceGuid, nodeId);
+            result.Created.Add(nodeId);
+        }
+        else if (IsGenericNativeNode(existing))
+        {
+            node = existing;
+            result.Patched.Add(nodeId);
+        }
+        else
+        {
+            throw new CommandValidationException($"node_id '{nodeId}' exists but is not a native Grasshopper component/parameter.");
+        }
+
+        node.NickName = nickname;
+        SetPosition(node, position);
+
+        if (TryReadColor(args, out var color))
+        {
+            ApplyColorValue(node, color, result.Warnings, nodeId);
+        }
+
+        if (args.TryGetPropertyIgnoreCase("hidden", out var hiddenElement) &&
+            hiddenElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            SetPreviewHidden(node, hiddenElement.GetBoolean());
+        }
 
         if (node is IGH_ActiveObject active)
         {
@@ -456,10 +457,20 @@ internal sealed partial class GrasshopperRuntime
 
         if (connect)
         {
+            if (targetParam.Sources.Contains(sourceParam))
+            {
+                return;
+            }
+
             targetParam.AddSource(sourceParam);
         }
         else
         {
+            if (!targetParam.Sources.Contains(sourceParam))
+            {
+                return;
+            }
+
             targetParam.RemoveSource(sourceParam);
         }
 
@@ -526,6 +537,135 @@ internal sealed partial class GrasshopperRuntime
         result.Patched.Add(nodeId);
     }
 
+    private void ApplySetPreview(GH_Document doc, JsonElement args, TransactionApplyData result)
+    {
+        var mode = (TryGetJsonString(args, "mode", "action") ?? "show").Trim().ToLowerInvariant();
+        var stateId = TryGetJsonString(args, "state_id", "stateId") ?? "default";
+        var allObjects = doc.Objects.OfType<IGH_DocumentObject>().ToList();
+        var nodeIds = ReadStringArray(args, "node_ids", "nodes");
+
+        switch (mode)
+        {
+            case "isolate":
+                if (nodeIds.Count == 0)
+                {
+                    throw new CommandValidationException("set_preview isolate requires node_ids.");
+                }
+
+                var targetGuids = ResolveNodeIds(doc, nodeIds).Select(x => x.InstanceGuid).ToHashSet();
+                _previewStates[stateId] = allObjects.ToDictionary(x => x.InstanceGuid, GetPreviewHidden);
+                foreach (var obj in allObjects)
+                {
+                    SetPreviewHidden(obj, !targetGuids.Contains(obj.InstanceGuid));
+                }
+
+                result.Patched.Add($"preview:{stateId}:isolate");
+                break;
+
+            case "restore":
+                if (_previewStates.TryGetValue(stateId, out var previous))
+                {
+                    foreach (var obj in allObjects)
+                    {
+                        if (previous.TryGetValue(obj.InstanceGuid, out var hidden))
+                        {
+                            SetPreviewHidden(obj, hidden);
+                        }
+                    }
+
+                    _previewStates.Remove(stateId);
+                }
+
+                result.Patched.Add($"preview:{stateId}:restore");
+                break;
+
+            case "show":
+            case "hide":
+                if (nodeIds.Count == 0)
+                {
+                    throw new CommandValidationException($"set_preview {mode} requires node_ids.");
+                }
+
+                foreach (var node in ResolveNodeIds(doc, nodeIds))
+                {
+                    SetPreviewHidden(node, mode == "hide");
+                    result.Patched.Add(_nodeMetadata.GetOrCreateNodeId(node, KindPrefix(DetermineKind(node))));
+                }
+
+                break;
+
+            default:
+                throw new CommandValidationException("set_preview mode must be isolate, restore, show, or hide.");
+        }
+
+        RefreshPreview(doc);
+    }
+
+    private void ApplySetLayerVisibility(JsonElement args, TransactionApplyData result)
+    {
+        var rhinoDoc = RhinoDoc.ActiveDoc
+                       ?? throw new CommandValidationException("set_layer_visibility requires an active Rhino document.");
+        var mode = (TryGetJsonString(args, "mode", "action") ?? "show").Trim().ToLowerInvariant();
+        var stateId = TryGetJsonString(args, "state_id", "stateId") ?? "default";
+        var root = TryGetJsonString(args, "layer_root", "root", "layer");
+        var layers = rhinoDoc.Layers.Where(x => !x.IsDeleted).ToList();
+
+        switch (mode)
+        {
+            case "isolate":
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    throw new CommandValidationException("set_layer_visibility isolate requires layer_root.");
+                }
+
+                _layerVisibilityStates[stateId] = layers.ToDictionary(x => x.Id, x => x.IsVisible);
+                foreach (var layer in layers)
+                {
+                    SetLayerVisible(rhinoDoc, layer, IsLayerUnderRoot(layer, root));
+                }
+
+                result.Patched.Add($"layers:{stateId}:isolate");
+                break;
+
+            case "restore":
+                if (_layerVisibilityStates.TryGetValue(stateId, out var previous))
+                {
+                    foreach (var layer in layers)
+                    {
+                        if (previous.TryGetValue(layer.Id, out var visible))
+                        {
+                            SetLayerVisible(rhinoDoc, layer, visible);
+                        }
+                    }
+
+                    _layerVisibilityStates.Remove(stateId);
+                }
+
+                result.Patched.Add($"layers:{stateId}:restore");
+                break;
+
+            case "show":
+            case "hide":
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    throw new CommandValidationException($"set_layer_visibility {mode} requires layer_root.");
+                }
+
+                foreach (var layer in layers.Where(x => IsLayerUnderRoot(x, root)))
+                {
+                    SetLayerVisible(rhinoDoc, layer, mode == "show");
+                }
+
+                result.Patched.Add($"layers:{root}:{mode}");
+                break;
+
+            default:
+                throw new CommandValidationException("set_layer_visibility mode must be isolate, restore, show, or hide.");
+        }
+
+        rhinoDoc.Views.Redraw();
+    }
+
     private static IReadOnlyList<JsonElement>? GetOptionalArray(JsonElement element, string name)
     {
         if (!element.TryGetPropertyIgnoreCase(name, out var value))
@@ -555,6 +695,44 @@ internal sealed partial class GrasshopperRuntime
         return new PositionModel { X = defaultX, Y = defaultY };
     }
 
+    private static IReadOnlyList<string> ReadStringArray(JsonElement args, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!args.TryGetPropertyIgnoreCase(name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind != JsonValueKind.Array)
+            {
+                throw new CommandValidationException($"'{name}' must be an array of strings.");
+            }
+
+            return value.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!)
+                .ToArray();
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private IReadOnlyList<IGH_DocumentObject> ResolveNodeIds(GH_Document doc, IReadOnlyList<string> nodeIds)
+    {
+        var nodes = new List<IGH_DocumentObject>();
+        foreach (var nodeId in nodeIds)
+        {
+            var node = ResolveNode(doc, nodeId, null)
+                       ?? throw new CommandValidationException($"Unknown node_id '{nodeId}' in preview operation.");
+            nodes.Add(node);
+        }
+
+        return nodes;
+    }
+
     private static void SetPosition(IGH_DocumentObject node, PositionModel position)
     {
         node.CreateAttributes();
@@ -565,6 +743,51 @@ internal sealed partial class GrasshopperRuntime
 
         node.Attributes.Pivot = new PointF((float)position.X, (float)position.Y);
         node.Attributes.ExpireLayout();
+    }
+
+    private static bool GetPreviewHidden(IGH_DocumentObject obj)
+    {
+        return obj is IGH_PreviewObject preview
+            ? preview.Hidden
+            : TryGetBoolPropertyValue(obj, "Hidden");
+    }
+
+    private static void SetPreviewHidden(IGH_DocumentObject obj, bool hidden)
+    {
+        if (obj is IGH_PreviewObject preview)
+        {
+            preview.Hidden = hidden;
+        }
+        else
+        {
+            _ = TrySetPropertyValue(obj, "Hidden", hidden);
+        }
+
+        _ = TryInvokeNoArg(obj, "ExpirePreview", "OnDisplayExpired", "ExpireLayout");
+    }
+
+    private static void RefreshPreview(GH_Document doc)
+    {
+        RhinoDoc.ActiveDoc?.Views.Redraw();
+        _ = TryInvokeNoArg(doc, "OnDisplayExpired");
+    }
+
+    private static bool IsLayerUnderRoot(Layer layer, string root)
+    {
+        var fullPath = layer.FullPath ?? layer.Name;
+        return string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase)
+               || fullPath.StartsWith(root + "::", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void SetLayerVisible(RhinoDoc doc, Layer layer, bool visible)
+    {
+        if (layer.IsVisible == visible)
+        {
+            return;
+        }
+
+        layer.IsVisible = visible;
+        doc.Layers.Modify(layer, layer.Index, true);
     }
 
     private IGH_DocumentObject? CreatePythonNode(string runtime)
@@ -612,6 +835,283 @@ internal sealed partial class GrasshopperRuntime
         }
 
         return Instances.ComponentServer?.EmitObject(guid.Value) as IGH_DocumentObject;
+    }
+
+    private IGH_DocumentObject? CreateNativeComponent(JsonElement args)
+    {
+        if (TryGetJsonString(args, "component_guid", "guid", "id") is { } guidText &&
+            Guid.TryParse(guidText, out var guid))
+        {
+            return Instances.ComponentServer?.EmitObject(guid) as IGH_DocumentObject;
+        }
+
+        var requested = TryGetJsonString(args, "component", "component_name", "name", "type");
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            throw new CommandValidationException("upsert_component requires component/component_name/name or component_guid.");
+        }
+
+        if (IsButtonName(requested))
+        {
+            var button = TryCreateGrasshopperSpecial("Grasshopper.Kernel.Special.GH_Button")
+                         ?? TryCreateGrasshopperSpecialByName("Button");
+            if (button is not null)
+            {
+                return button;
+            }
+        }
+
+        var proxies = Instances.ComponentServer?.ObjectProxies;
+        if (proxies is not null)
+        {
+            foreach (var candidate in EnumerateComponentNameCandidates(requested))
+            {
+                var exact = proxies.FirstOrDefault(proxy => ComponentProxyMatches(proxy, candidate, exact: true));
+                if (exact is not null)
+                {
+                    return Instances.ComponentServer?.EmitObject(exact.Guid) as IGH_DocumentObject;
+                }
+            }
+
+            foreach (var candidate in EnumerateComponentNameCandidates(requested))
+            {
+                var fuzzy = proxies.FirstOrDefault(proxy => ComponentProxyMatches(proxy, candidate, exact: false));
+                if (fuzzy is not null)
+                {
+                    return Instances.ComponentServer?.EmitObject(fuzzy.Guid) as IGH_DocumentObject;
+                }
+            }
+        }
+
+        if (IsColourSwatchName(requested))
+        {
+            return TryCreateGrasshopperSpecial("Grasshopper.Kernel.Special.GH_ColourSwatch")
+                   ?? TryCreateGrasshopperSpecial("Grasshopper.Kernel.Special.GH_ColorSwatch")
+                   ?? TryCreateGrasshopperSpecialByName("ColourSwatch")
+                   ?? TryCreateGrasshopperSpecialByName("ColorSwatch");
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateComponentNameCandidates(string requested)
+    {
+        var normalized = NormalizeComponentName(requested);
+        yield return requested;
+
+        foreach (var alias in normalized switch
+                 {
+                     "custompreview" => new[] { "Custom Preview", "CustomPreview" },
+                     "colour_swatch" or "colourswatch" or "colorswatch" => new[] { "Colour Swatch", "Color Swatch", "ColourSwatch", "ColorSwatch" },
+                     "button" or "pushbutton" => new[] { "Button", "Push Button", "PushButton" },
+                     "pointlist" => new[] { "Point List", "PointList" },
+                     "vectordisplay" => new[] { "Vector Display", "VectorDisplay" },
+                     "vectordisplayex" => new[] { "Vector Display Ex", "VectorDisplayEx" },
+                     "texttag" => new[] { "Text Tag", "TextTag" },
+                     "texttag3d" => new[] { "Text Tag 3D", "TextTag3D" },
+                     _ => Array.Empty<string>()
+                 })
+        {
+            yield return alias;
+        }
+    }
+
+    private static bool ComponentProxyMatches(object proxy, string requested, bool exact)
+    {
+        var desc = TryGetPropertyValue(proxy, "Desc");
+        var values = new[]
+        {
+            TryGetPropertyValue(desc, "Name")?.ToString(),
+            TryGetPropertyValue(desc, "NickName")?.ToString(),
+            TryGetPropertyValue(desc, "Description")?.ToString()
+        };
+
+        var requestedNormalized = NormalizeComponentName(requested);
+        foreach (var value in values.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            var candidate = NormalizeComponentName(value!);
+            if (exact && string.Equals(candidate, requestedNormalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!exact &&
+                (candidate.Contains(requestedNormalized, StringComparison.OrdinalIgnoreCase) ||
+                 requestedNormalized.Contains(candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string NormalizeComponentName(string value)
+    {
+        return new string((value ?? string.Empty)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .ToArray());
+    }
+
+    private static bool IsColourSwatchName(string value)
+    {
+        var normalized = NormalizeComponentName(value);
+        return normalized is "colourswatch" or "colorswatch";
+    }
+
+    private static bool IsButtonName(string value)
+    {
+        var normalized = NormalizeComponentName(value);
+        return normalized is "button" or "pushbutton";
+    }
+
+    private static IGH_DocumentObject? TryCreateGrasshopperSpecial(string fullTypeName)
+    {
+        var type = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(x => x.GetType(fullTypeName, throwOnError: false))
+            .FirstOrDefault(x => x is not null);
+
+        if (type is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Activator.CreateInstance(type) as IGH_DocumentObject;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IGH_DocumentObject? TryCreateGrasshopperSpecialByName(string typeNamePart)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type[] types;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch
+            {
+                continue;
+            }
+
+            var type = types.FirstOrDefault(x =>
+                typeof(IGH_DocumentObject).IsAssignableFrom(x) &&
+                x.GetConstructor(Type.EmptyTypes) is not null &&
+                x.Name.Contains(typeNamePart, StringComparison.OrdinalIgnoreCase));
+
+            if (type is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                return Activator.CreateInstance(type) as IGH_DocumentObject;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsGenericNativeNode(IGH_DocumentObject obj)
+    {
+        if (IsPythonNode(obj) ||
+            obj is GH_NumberSlider ||
+            obj is GH_BooleanToggle ||
+            obj is GH_Panel ||
+            obj is GH_Scribble)
+        {
+            return false;
+        }
+
+        return obj is IGH_Component or IGH_Param;
+    }
+
+    private static bool TryReadColor(JsonElement args, out Color color)
+    {
+        color = Color.Empty;
+        if (!args.TryGetPropertyIgnoreCase("color", out var value) &&
+            !args.TryGetPropertyIgnoreCase("colour", out value))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var text = value.GetString()?.Trim() ?? string.Empty;
+                if (text.StartsWith("#", StringComparison.Ordinal))
+                {
+                    text = text[1..];
+                }
+
+                if (text.Length == 6 || text.Length == 8)
+                {
+                    var offset = text.Length == 8 ? 2 : 0;
+                    var alpha = text.Length == 8 ? Convert.ToInt32(text[..2], 16) : 255;
+                    var red = Convert.ToInt32(text.Substring(offset, 2), 16);
+                    var green = Convert.ToInt32(text.Substring(offset + 2, 2), 16);
+                    var blue = Convert.ToInt32(text.Substring(offset + 4, 2), 16);
+                    color = Color.FromArgb(alpha, red, green, blue);
+                    return true;
+                }
+            }
+
+            if (value.ValueKind == JsonValueKind.Array)
+            {
+                var values = value.EnumerateArray()
+                    .Where(x => x.ValueKind == JsonValueKind.Number)
+                    .Select(x => x.GetInt32())
+                    .ToArray();
+                if (values.Length >= 3)
+                {
+                    color = Color.FromArgb(values.Length >= 4 ? values[3] : 255, values[0], values[1], values[2]);
+                    return true;
+                }
+            }
+
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var red = value.GetOptionalInt("r") ?? value.GetOptionalInt("red") ?? 0;
+                var green = value.GetOptionalInt("g") ?? value.GetOptionalInt("green") ?? 0;
+                var blue = value.GetOptionalInt("b") ?? value.GetOptionalInt("blue") ?? 0;
+                var alpha = value.GetOptionalInt("a") ?? value.GetOptionalInt("alpha") ?? 255;
+                color = Color.FromArgb(alpha, red, green, blue);
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static void ApplyColorValue(IGH_DocumentObject node, Color color, List<string> warnings, string nodeId)
+    {
+        var applied = TrySetPropertyValue(node, "SwatchColour", color)
+                      || TrySetPropertyValue(node, "SwatchColor", color)
+                      || TrySetPropertyValue(node, "Colour", color)
+                      || TrySetPropertyValue(node, "Color", color)
+                      || TrySetPropertyValue(node, "Value", color);
+
+        if (!applied)
+        {
+            warnings.Add($"Could not apply color value to native component '{nodeId}'.");
+        }
     }
 
     private static bool TrySetPythonSource(IGH_DocumentObject node, string source)

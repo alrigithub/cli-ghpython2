@@ -17,7 +17,7 @@
       "node_id": "example_node",
       "nickname": "Example Node",
       "runtime": "cpython3",
-      "file_path": "C:/absolute/path/to/templates/gh_python_node.py",
+      "file_path": "gh_python_node.py",
       "position": { "x": 340, "y": 100 },
       "inputs": [
         { "name": "count", "typeName": "int", "access": "item" }
